@@ -2,6 +2,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import json
 
 # =========================
 # Page config
@@ -22,6 +23,15 @@ def load_data():
     return df
 
 df = load_data()
+
+
+@st.cache_data
+def load_geojson():
+    with open("geo/lga_nsw_2024_simplified.geojson", "r", encoding="utf-8") as f:
+        return json.load(f)
+
+lga_geojson = load_geojson()
+
 
 # =========================
 # Title and narrative framing
@@ -113,6 +123,69 @@ if pd.notna(population_value) and population_value > 0:
     rate_per_100k = total_incidents / population_value * 100000
 else:
     rate_per_100k = 0
+
+
+
+# ==========================
+# Hotspot map
+# ==========================
+st.header("0. Where: NSW Crime Hotspot Map")
+
+map_filtered = df.copy()
+
+if selected_offence != "All":
+    map_filtered = map_filtered[map_filtered["offence_category"] == selected_offence]
+
+if isinstance(date_range, tuple) and len(date_range) == 2:
+    start_date, end_date = date_range
+    map_filtered = map_filtered[
+        (map_filtered["month"].dt.date >= start_date) &
+        (map_filtered["month"].dt.date <= end_date)
+    ]
+
+map_df = (
+    map_filtered.groupby("lga", as_index=False)
+    .agg(
+        incident_count=("incident_count", "sum"),
+        population_2024=("population_2024", "max")
+    )
+)
+
+map_df["rate_per_100k"] = (
+    map_df["incident_count"] / map_df["population_2024"] * 100000
+)
+
+map_df["rate_per_100k"] = map_df["rate_per_100k"].fillna(0)
+
+map_color_max = map_df["rate_per_100k"].quantile(0.95)
+
+fig_map = px.choropleth_mapbox(
+    map_df,
+    geojson=lga_geojson,
+    locations="lga",
+    featureidkey="properties.lga_name",
+    color="rate_per_100k",
+    range_color=(0, map_color_max),
+    hover_name="lga",
+    hover_data={
+        "incident_count": ":,",
+        "population_2024": ":,",
+        "rate_per_100k": ":.1f"
+    },
+    mapbox_style="carto-positron",
+    center={"lat": -32.8, "lon": 147.0},
+    zoom=5,
+    opacity=0.65,
+    title="Crime pressure by NSW LGA, rate per 100,000 people"
+)
+
+fig_map.update_layout(
+    margin={"r": 0, "t": 40, "l": 0, "b": 0},
+    height=600
+)
+
+st.plotly_chart(fig_map, use_container_width=True)
+
 
 # =========================
 # Executive story section
