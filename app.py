@@ -55,6 +55,11 @@ date_range = st.sidebar.date_input(
     max_value=max_month
 )
 
+trend_metric = st.sidebar.radio(
+    "Select trend metric",
+    ["Incident count", "Rate per 100k"]
+)
+
 # =========================
 # Apply filters
 # =========================
@@ -139,17 +144,43 @@ st.markdown(
 # =========================
 st.header("2. So What: Monthly Crime Trend")
 
+monthly_total = (
+    filtered.groupby("month", as_index=False)
+    .agg(
+        incident_count=("incident_count", "sum"),
+        population_2024=("population_2024", "max")
+    )
+    .sort_values("month")
+)
+
+monthly_total["rate_per_100k"] = (
+    monthly_total["incident_count"] / monthly_total["population_2024"] * 100000
+)
+
+if trend_metric == "Incident count":
+    y_col = "incident_count"
+    y_label = "Incident count"
+    chart_title = f"Monthly incidents in {selected_lga}"
+else:
+    y_col = "rate_per_100k"
+    y_label = "Rate per 100k people"
+    chart_title = f"Monthly crime rate per 100k in {selected_lga}"
+
 fig_trend = px.line(
     monthly_total,
     x="month",
-    y="incident_count",
+    y=y_col,
     markers=True,
-    title=f"Monthly incidents in {selected_lga}"
+    title=chart_title,
+    labels={
+        "month": "Month",
+        y_col: y_label
+    }
 )
 
 fig_trend.update_layout(
     xaxis_title="Month",
-    yaxis_title="Incident count",
+    yaxis_title=y_label,
     hovermode="x unified"
 )
 
