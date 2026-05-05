@@ -17,7 +17,7 @@ st.set_page_config(
 # =========================
 @st.cache_data
 def load_data():
-    df = pd.read_csv("crime_long_2024_onwards.csv")
+    df = pd.read_csv("crime_with_population_2024_onwards.csv")
     df["month"] = pd.to_datetime(df["month"])
     return df
 
@@ -102,20 +102,30 @@ top_offence = (
 
 top_offence_name = top_offence.iloc[0]["offence_category"] if not top_offence.empty else "N/A"
 
+population_value = filtered["population_2024"].dropna().max()
+
+if pd.notna(population_value) and population_value > 0:
+    rate_per_100k = total_incidents / population_value * 100000
+else:
+    rate_per_100k = 0
+
 # =========================
 # Executive story section
 # =========================
 st.header("1. What: Selected Area Crime Snapshot")
 
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4, col5 = st.columns(5)
 
 col1.metric("Total incidents", f"{total_incidents:,}")
 col2.metric("Latest month incidents", f"{latest_incidents:,}")
-col3.metric(
-    "12-month change",
-    "N/A" if yoy_change is None else f"{yoy_change:.1f}%"
-)
-col4.metric("Top offence driver", top_offence_name)
+
+if yoy_change is not None:
+    col3.metric("12-month change", f"{yoy_change:.1f}%")
+else:
+    col3.metric("12-month change", "N/A")
+
+col4.metric("Rate per 100k", f"{rate_per_100k:,.1f}")
+col5.metric("Top offence driver", top_offence_name)
 
 st.markdown(
     f"""
