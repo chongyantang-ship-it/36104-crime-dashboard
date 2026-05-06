@@ -1,4 +1,4 @@
-# NSW Crime Pressure Dashboard
+  # NSW Crime Pressure Dashboard
 
 Streamlit dashboard prototype for UTS 36104 Data Visualisation and Narratives Assignment 3.
 
@@ -32,6 +32,7 @@ The population-adjusted rate allows fairer comparison between LGAs with differen
 
 ## Current Features
 
+- NSW LGA hotspot map showing population-adjusted crime pressure by rate per 100,000 people
 - LGA filter
 - Offence category filter
 - Date range filter
@@ -61,6 +62,9 @@ This prototype currently supports:
 
 3. **Narrative structure**  
    The dashboard follows a What → So What → What Next narrative flow.
+
+4. **Spatial hotspot map**  
+   The dashboard uses NSW LGA boundary data to show where crime pressure is concentrated geographically.
 
 Planned improvements include richer tooltips, map-based hotspot view, and stronger recommendation logic.
 
