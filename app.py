@@ -4,6 +4,8 @@ import pandas as pd
 import plotly.express as px
 import json
 
+COLOR_SCALE = "Blues"
+
 # =========================
 # Page config
 # =========================
@@ -33,6 +35,52 @@ def load_geojson():
 lga_geojson = load_geojson()
 
 
+def get_lga_map_view(geojson, lga_names):
+    if not lga_names:
+        return {"lat": -32.8, "lon": 147.0}, 5
+    name_set = set(lga_names)
+    all_lons, all_lats = [], []
+    for feature in geojson["features"]:
+        if feature["properties"].get("lga_name") in name_set:
+            geom = feature["geometry"]
+            coords = []
+            if geom["type"] == "Polygon":
+                for ring in geom["coordinates"]:
+                    coords.extend(ring)
+            elif geom["type"] == "MultiPolygon":
+                for polygon in geom["coordinates"]:
+                    for ring in polygon:
+                        coords.extend(ring)
+            all_lons.extend(c[0] for c in coords)
+            all_lats.extend(c[1] for c in coords)
+    if not all_lons:
+        return {"lat": -32.8, "lon": 147.0}, 5
+    center = {"lat": sum(all_lats) / len(all_lats), "lon": sum(all_lons) / len(all_lons)}
+    extent = max(max(all_lons) - min(all_lons), max(all_lats) - min(all_lats))
+    if extent > 5:
+        zoom = 6
+    elif extent > 2:
+        zoom = 7
+    elif extent > 1:
+        zoom = 8
+    elif extent > 0.5:
+        zoom = 9
+    else:
+        zoom = 10
+    return center, zoom
+
+
+def make_sparkline(series):
+    bars = "▁▂▃▄▅▆▇█"
+    vals = list(series)
+    if len(vals) < 2:
+        return "—"
+    mn, mx = min(vals), max(vals)
+    if mn == mx:
+        return bars[3] * min(8, len(vals))
+    return "".join(bars[min(7, int((v - mn) / (mx - mn) * 7.99))] for v in vals[-8:])
+
+
 # =========================
 # Title and narrative framing
 # =========================
@@ -49,8 +97,12 @@ st.markdown(
 # =========================
 st.sidebar.header("Filters")
 
-lga_options = sorted(df["lga"].dropna().unique())
-selected_lga = st.sidebar.selectbox("Select LGA", lga_options)
+lga_only = sorted(df["lga"].dropna().unique())
+selected_lgas = st.sidebar.multiselect(
+    "Select LGA(s)",
+    lga_only,
+    placeholder="All LGAs (default)"
+)
 
 offence_options = ["All"] + sorted(df["offence_category"].dropna().unique())
 selected_offence = st.sidebar.selectbox("Select offence category", offence_options)
@@ -70,10 +122,14 @@ trend_metric = st.sidebar.radio(
     ["Incident count", "Rate per 100k"]
 )
 
+st.sidebar.divider()
+st.sidebar.caption("Export")
+_sidebar_csv_placeholder = st.sidebar.empty()
+
 # =========================
 # Apply filters
 # =========================
-filtered = df[df["lga"] == selected_lga].copy()
+filtered = df[df["lga"].isin(selected_lgas)].copy() if selected_lgas else df.copy()
 
 if selected_offence != "All":
     filtered = filtered[filtered["offence_category"] == selected_offence]
@@ -117,10 +173,10 @@ top_offence = (
 
 top_offence_name = top_offence.iloc[0]["offence_category"] if not top_offence.empty else "N/A"
 
-population_value = filtered["population_2024"].dropna().max()
+pop_total = filtered.groupby("lga")["population_2024"].max().sum()
 
-if pd.notna(population_value) and population_value > 0:
-    rate_per_100k = total_incidents / population_value * 100000
+if pd.notna(pop_total) and pop_total > 0:
+    rate_per_100k = total_incidents / pop_total * 100000
 else:
     rate_per_100k = 0
 
@@ -157,7 +213,31 @@ map_df["rate_per_100k"] = (
 
 map_df["rate_per_100k"] = map_df["rate_per_100k"].fillna(0)
 
+# Sparklines per LGA for rich tooltips
+monthly_by_lga = (
+    map_filtered.groupby(["lga", "month"])["incident_count"]
+    .sum().reset_index().sort_values(["lga", "month"])
+)
+sparklines = (
+    monthly_by_lga.groupby("lga")["incident_count"]
+    .apply(make_sparkline).reset_index()
+    .rename(columns={"incident_count": "trend"})
+)
+top_off_map = (
+    map_filtered.groupby(["lga", "offence_category"])["incident_count"]
+    .sum().reset_index()
+    .sort_values("incident_count", ascending=False)
+    .drop_duplicates("lga")[["lga", "offence_category"]]
+    .rename(columns={"offence_category": "top_offence"})
+)
+map_df = map_df.merge(sparklines, on="lga", how="left")
+map_df = map_df.merge(top_off_map, on="lga", how="left")
+map_df["trend"] = map_df["trend"].fillna("—")
+map_df["top_offence"] = map_df["top_offence"].fillna("N/A")
+
 map_color_max = map_df["rate_per_100k"].quantile(0.95)
+
+map_center, map_zoom = get_lga_map_view(lga_geojson, selected_lgas)
 
 fig_map = px.choropleth_mapbox(
     map_df,
@@ -167,16 +247,25 @@ fig_map = px.choropleth_mapbox(
     color="rate_per_100k",
     range_color=(0, map_color_max),
     hover_name="lga",
-    hover_data={
-        "incident_count": ":,",
-        "population_2024": ":,",
-        "rate_per_100k": ":.1f"
-    },
+    custom_data=["incident_count", "population_2024", "rate_per_100k", "top_offence", "trend"],
     mapbox_style="carto-positron",
-    center={"lat": -32.8, "lon": 147.0},
-    zoom=5,
+    center=map_center,
+    zoom=map_zoom,
+    color_continuous_scale=COLOR_SCALE,
     opacity=0.65,
     title="Crime pressure by NSW LGA, rate per 100,000 people"
+)
+
+fig_map.update_traces(
+    hovertemplate=(
+        "<b>%{hovertext}</b><br>"
+        "Rate per 100k: <b>%{customdata[2]:.1f}</b><br>"
+        "Total incidents: %{customdata[0]:,}<br>"
+        "Population: %{customdata[1]:,}<br>"
+        "Top offence: %{customdata[3]}<br>"
+        "Trend (últimos 8 meses): %{customdata[4]}"
+        "<extra></extra>"
+    )
 )
 
 fig_map.update_layout(
@@ -205,9 +294,23 @@ else:
 col4.metric("Rate per 100k", f"{rate_per_100k:,.1f}")
 col5.metric("Top offence driver", top_offence_name)
 
+if not selected_lgas:
+    lga_label = "all NSW LGAs"
+elif len(selected_lgas) == 1:
+    lga_label = selected_lgas[0]
+else:
+    lga_label = f"{len(selected_lgas)} selected LGAs"
+
+_sidebar_csv_placeholder.download_button(
+    label="Download filtered data as CSV",
+    data=filtered.to_csv(index=False).encode("utf-8"),
+    file_name=f"nsw_crime_{lga_label.replace(' ', '_')}.csv",
+    mime="text/csv"
+)
+
 st.markdown(
     f"""
-    This section gives a quick overview of **{selected_lga}**.  
+    This section gives a quick overview of **{lga_label}**.
     It helps the stakeholder identify whether the selected area has a clear crime pressure signal before exploring deeper patterns.
     """
 )
@@ -233,11 +336,11 @@ monthly_total["rate_per_100k"] = (
 if trend_metric == "Incident count":
     y_col = "incident_count"
     y_label = "Incident count"
-    chart_title = f"Monthly incidents in {selected_lga}"
+    chart_title = f"Monthly incidents in {lga_label}"
 else:
     y_col = "rate_per_100k"
     y_label = "Rate per 100k people"
-    chart_title = f"Monthly crime rate per 100k in {selected_lga}"
+    chart_title = f"Monthly crime rate per 100k in {lga_label}"
 
 fig_trend = px.line(
     monthly_total,
@@ -275,7 +378,7 @@ fig_bar = px.bar(
     x="incident_count",
     y="offence_category",
     orientation="h",
-    title=f"Offence categories driving incidents in {selected_lga}",
+    title=f"Offence categories driving incidents in {lga_label}",
     hover_data=["incident_count"]
 )
 
@@ -300,15 +403,15 @@ latest_by_offence = (
     .sort_values("incident_count", ascending=False)
 )
 
-st.subheader(f"Insight card for {selected_lga}")
+st.subheader(f"Insight card for {lga_label}")
 
 if not latest_by_offence.empty:
     latest_top = latest_by_offence.iloc[0]
     st.info(
         f"""
-        In the latest available month, **{latest_top['offence_category']}** was the largest offence category in **{selected_lga}**, 
+        In the latest available month, **{latest_top['offence_category']}** was the largest offence category in **{lga_label}**,
         with **{int(latest_top['incident_count']):,} incidents**.
-        
+
         This suggests that prevention planning should first examine the main offence driver rather than treating all crime types as one general problem.
         """
     )
@@ -316,7 +419,162 @@ else:
     st.warning("No data available for the selected filters.")
 
 # =========================
-# Data preview
+# Seasonality heatmap
+# =========================
+st.header("5. Seasonality: Crime by Month of Year")
+
+seasonal = filtered.copy()
+seasonal["month_name"] = seasonal["month"].dt.month
+seasonal["year"] = seasonal["month"].dt.year
+
+heat_pivot = (
+    seasonal.groupby(["year", "month_name"], as_index=False)["incident_count"]
+    .sum()
+    .pivot(index="year", columns="month_name", values="incident_count")
+)
+
+month_abbr = {1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
+              7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"}
+heat_pivot.columns = [month_abbr[c] for c in heat_pivot.columns]
+
+fig_heat = px.imshow(
+    heat_pivot,
+    labels={"x": "Month", "y": "Year", "color": "Incidents"},
+    title=f"Crime seasonality in {lga_label} — total incidents by month and year",
+    color_continuous_scale=COLOR_SCALE,
+    text_auto=True,
+    aspect="auto"
+)
+fig_heat.update_layout(margin={"t": 50, "b": 0})
+
+st.plotly_chart(fig_heat, use_container_width=True)
+
+# =========================
+# LGA comparator
+# =========================
+st.header("6. Comparator: Side-by-Side LGA Comparison")
+
+lga_only = sorted(df["lga"].dropna().unique())
+default_b = 1 if len(lga_only) > 1 else 0
+
+comp_col1, comp_col2, comp_col3 = st.columns([2, 2, 2])
+with comp_col1:
+    lga_a = st.selectbox("LGA A", lga_only, key="lga_a")
+with comp_col2:
+    lga_b = st.selectbox("LGA B", lga_only, index=default_b, key="lga_b")
+with comp_col3:
+    comp_offence = st.selectbox("Offence category", offence_options, key="comp_offence")
+
+def get_lga_monthly(lga_name, offence):
+    d = df[df["lga"] == lga_name].copy()
+    if offence != "All":
+        d = d[d["offence_category"] == offence]
+    if isinstance(date_range, tuple) and len(date_range) == 2:
+        s, e = date_range
+        d = d[(d["month"].dt.date >= s) & (d["month"].dt.date <= e)]
+    return (
+        d.groupby("month", as_index=False)
+        .agg(incident_count=("incident_count", "sum"), population_2024=("population_2024", "max"))
+        .sort_values("month")
+    )
+
+comp_a = get_lga_monthly(lga_a, comp_offence)
+comp_a["lga"] = lga_a
+comp_b = get_lga_monthly(lga_b, comp_offence)
+comp_b["lga"] = lga_b
+
+comp_df = pd.concat([comp_a, comp_b], ignore_index=True)
+comp_df["rate_per_100k"] = comp_df["incident_count"] / comp_df["population_2024"] * 100000
+
+comp_left, comp_right = st.columns(2)
+
+with comp_left:
+    fig_comp_trend = px.line(
+        comp_df,
+        x="month",
+        y="rate_per_100k",
+        color="lga",
+        markers=True,
+        title=f"Monthly rate per 100k: {lga_a} vs {lga_b}",
+        labels={"month": "Month", "rate_per_100k": "Rate per 100k", "lga": "LGA"}
+    )
+    fig_comp_trend.update_layout(hovermode="x unified")
+    st.plotly_chart(fig_comp_trend, use_container_width=True)
+
+with comp_right:
+    offence_a = df[df["lga"] == lga_a].groupby("offence_category", as_index=False)["incident_count"].sum()
+    offence_a["lga"] = lga_a
+    offence_b = df[df["lga"] == lga_b].groupby("offence_category", as_index=False)["incident_count"].sum()
+    offence_b["lga"] = lga_b
+    offence_comp = pd.concat([offence_a, offence_b], ignore_index=True)
+
+    fig_comp_bar = px.bar(
+        offence_comp,
+        x="incident_count",
+        y="offence_category",
+        color="lga",
+        barmode="group",
+        orientation="h",
+        title=f"Offence composition: {lga_a} vs {lga_b}",
+        labels={"incident_count": "Incidents", "offence_category": "Offence", "lga": "LGA"}
+    )
+    fig_comp_bar.update_layout(yaxis={"categoryorder": "total ascending"})
+    st.plotly_chart(fig_comp_bar, use_container_width=True)
+
+# =========================
+# LGA ranking
+# =========================
+st.header("7. Ranking: LGAs by Crime Rate")
+
+rank_col1, rank_col2 = st.columns([2, 1])
+with rank_col1:
+    rank_offence = st.selectbox("Filter by offence category", offence_options, key="rank_offence")
+with rank_col2:
+    top_n = st.slider("Show top N LGAs", min_value=5, max_value=50, value=20, step=5)
+
+rank_df = df.copy()
+if rank_offence != "All":
+    rank_df = rank_df[rank_df["offence_category"] == rank_offence]
+if isinstance(date_range, tuple) and len(date_range) == 2:
+    s, e = date_range
+    rank_df = rank_df[(rank_df["month"].dt.date >= s) & (rank_df["month"].dt.date <= e)]
+
+rank_summary = (
+    rank_df.groupby("lga", as_index=False)
+    .agg(incident_count=("incident_count", "sum"), population_2024=("population_2024", "max"))
+)
+rank_summary["rate_per_100k"] = rank_summary["incident_count"] / rank_summary["population_2024"] * 100000
+rank_summary = rank_summary.sort_values("rate_per_100k", ascending=False).head(top_n)
+
+fig_rank = px.bar(
+    rank_summary,
+    x="rate_per_100k",
+    y="lga",
+    orientation="h",
+    color="rate_per_100k",
+    color_continuous_scale=COLOR_SCALE,
+    title=f"Top {top_n} LGAs by crime rate per 100k",
+    labels={"rate_per_100k": "Rate per 100k", "lga": "LGA"},
+    hover_data={"incident_count": ":,", "rate_per_100k": ":.1f"}
+)
+fig_rank.update_layout(
+    yaxis={"categoryorder": "total ascending"},
+    coloraxis_showscale=False,
+    height=max(400, top_n * 22)
+)
+
+st.plotly_chart(fig_rank, use_container_width=True)
+
+# =========================
+# Data preview & export
 # =========================
 with st.expander("Show filtered data"):
     st.dataframe(filtered.head(200))
+
+csv_bytes = filtered.to_csv(index=False).encode("utf-8")
+st.download_button(
+    label="Download filtered data as CSV",
+    data=csv_bytes,
+    file_name=f"nsw_crime_{lga_label.replace(' ', '_')}.csv",
+    mime="text/csv"
+)
