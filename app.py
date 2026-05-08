@@ -566,6 +566,170 @@ fig_rank.update_layout(
 st.plotly_chart(fig_rank, use_container_width=True)
 
 # =========================
+# Stacked area by category
+# =========================
+st.header("8. Crime Trend by Offence Category")
+
+cat_trend = (
+    filtered.groupby(["month", "offence_category"], as_index=False)["incident_count"]
+    .sum()
+    .sort_values("month")
+)
+
+fig_area = px.area(
+    cat_trend,
+    x="month",
+    y="incident_count",
+    color="offence_category",
+    title=f"Monthly incidents by offence category — {lga_label}",
+    labels={"month": "Month", "incident_count": "Incidents", "offence_category": "Category"}
+)
+fig_area.update_layout(hovermode="x unified", legend_title="Category")
+
+st.plotly_chart(fig_area, use_container_width=True)
+
+# =========================
+# Year-over-year comparison
+# =========================
+st.header("9. Year-over-Year Comparison")
+
+yoy_df = filtered.copy()
+yoy_df["year"] = yoy_df["month"].dt.year.astype(str)
+yoy_df["month_num"] = yoy_df["month"].dt.month
+
+yoy_monthly = (
+    yoy_df.groupby(["year", "month_num"], as_index=False)["incident_count"].sum()
+)
+yoy_monthly["month_name"] = yoy_monthly["month_num"].map(month_abbr)
+
+fig_yoy = px.bar(
+    yoy_monthly,
+    x="month_name",
+    y="incident_count",
+    color="year",
+    barmode="group",
+    title=f"Incidents by month — year-over-year comparison ({lga_label})",
+    labels={"month_name": "Month", "incident_count": "Incidents", "year": "Year"},
+    category_orders={"month_name": list(month_abbr.values())}
+)
+fig_yoy.update_layout(hovermode="x unified", legend_title="Year")
+
+st.plotly_chart(fig_yoy, use_container_width=True)
+
+# =========================
+# Month-over-month % change
+# =========================
+st.header("10. Crime Acceleration — Month-over-Month Change (%)")
+
+mom = (
+    filtered.groupby("month", as_index=False)["incident_count"]
+    .sum()
+    .sort_values("month")
+)
+mom["pct_change"] = mom["incident_count"].pct_change() * 100
+mom_valid = mom.dropna(subset=["pct_change"]).copy()
+
+fig_mom = px.bar(
+    mom_valid,
+    x="month",
+    y="pct_change",
+    color="pct_change",
+    color_continuous_scale=COLOR_SCALE,
+    title=f"Month-over-month % change in incidents — {lga_label}",
+    labels={"month": "Month", "pct_change": "% change vs prior month"},
+)
+fig_mom.add_hline(y=0, line_dash="dash", line_color="gray", line_width=1)
+fig_mom.update_layout(hovermode="x unified", coloraxis_showscale=False)
+
+st.plotly_chart(fig_mom, use_container_width=True)
+
+# =========================
+# LGA summary table
+# =========================
+st.header("11. LGA Summary Table")
+
+tbl_df = df.copy()
+if selected_offence != "All":
+    tbl_df = tbl_df[tbl_df["offence_category"] == selected_offence]
+if isinstance(date_range, tuple) and len(date_range) == 2:
+    s, e = date_range
+    tbl_df = tbl_df[(tbl_df["month"].dt.date >= s) & (tbl_df["month"].dt.date <= e)]
+
+tbl_summary = (
+    tbl_df.groupby("lga", as_index=False)
+    .agg(
+        total_incidents=("incident_count", "sum"),
+        population=("population_2024", "max")
+    )
+)
+tbl_summary["rate_per_100k"] = (
+    tbl_summary["total_incidents"] / tbl_summary["population"] * 100000
+).round(1)
+
+# YoY change per LGA
+tbl_monthly = (
+    tbl_df.groupby(["lga", "month"])["incident_count"].sum()
+    .reset_index().sort_values(["lga", "month"])
+)
+
+def lga_yoy(grp):
+    grp = grp.sort_values("month").reset_index(drop=True)
+    if len(grp) < 13:
+        return None
+    last = grp.iloc[-1]["incident_count"]
+    prev = grp.iloc[-13]["incident_count"]
+    if prev == 0:
+        return None
+    return round((last - prev) / prev * 100, 1)
+
+yoy_per_lga = (
+    tbl_monthly.groupby("lga")[["month", "incident_count"]]
+    .apply(lga_yoy)
+    .reset_index()
+    .rename(columns={0: "yoy_pct"})
+)
+
+tbl_sparklines = (
+    tbl_monthly.groupby("lga")["incident_count"]
+    .apply(make_sparkline)
+    .reset_index()
+    .rename(columns={"incident_count": "trend"})
+)
+
+tbl_summary = (
+    tbl_summary
+    .merge(yoy_per_lga, on="lga", how="left")
+    .merge(tbl_sparklines, on="lga", how="left")
+)
+
+def trend_arrow(v):
+    if pd.isna(v):
+        return "—"
+    if v > 5:
+        return f"↑ {v:+.1f}%"
+    if v < -5:
+        return f"↓ {v:+.1f}%"
+    return f"→ {v:+.1f}%"
+
+tbl_summary["yoy_change"] = tbl_summary["yoy_pct"].apply(trend_arrow)
+tbl_summary = tbl_summary.sort_values("rate_per_100k", ascending=False)
+
+st.dataframe(
+    tbl_summary[["lga", "total_incidents", "population", "rate_per_100k", "yoy_change", "trend"]]
+    .rename(columns={
+        "lga": "LGA",
+        "total_incidents": "Total Incidents",
+        "population": "Population",
+        "rate_per_100k": "Rate per 100k",
+        "yoy_change": "YoY Change",
+        "trend": "Trend (8 months)"
+    }),
+    use_container_width=True,
+    hide_index=True,
+    height=420
+)
+
+# =========================
 # Data preview & export
 # =========================
 with st.expander("Show filtered data"):
