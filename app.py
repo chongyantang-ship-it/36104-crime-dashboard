@@ -454,24 +454,29 @@ st.plotly_chart(fig_heat, use_container_width=True)
 # =========================
 st.header("6. Comparator: Side-by-Side LGA Comparison")
 
-lga_only = sorted(df["lga"].dropna().unique())
-default_b = 1 if len(lga_only) > 1 else 0
+comp_lga_options = ["All"] + sorted(df["lga"].dropna().unique())
+default_lga_b = comp_lga_options.index("Sydney") if "Sydney" in comp_lga_options else 0
 
 comp_col1, comp_col2, comp_col3 = st.columns([2, 2, 2])
 with comp_col1:
-    lga_a = st.selectbox("LGA A", lga_only, key="lga_a")
+    lga_a = st.selectbox("LGA A", comp_lga_options, key="lga_a")
 with comp_col2:
-    lga_b = st.selectbox("LGA B", lga_only, index=default_b, key="lga_b")
+    lga_b = st.selectbox("LGA B", comp_lga_options, index=default_lga_b, key="lga_b")
 with comp_col3:
     comp_offence = st.selectbox("Offence category", offence_options, key="comp_offence")
 
 def get_lga_monthly(lga_name, offence):
-    d = df[df["lga"] == lga_name].copy()
+    d = df.copy() if lga_name == "All" else df[df["lga"] == lga_name].copy()
     if offence != "All":
         d = d[d["offence_category"] == offence]
     if isinstance(date_range, tuple) and len(date_range) == 2:
         s, e = date_range
         d = d[(d["month"].dt.date >= s) & (d["month"].dt.date <= e)]
+    if lga_name == "All":
+        pop_by_month = df.groupby(["month", "lga"], as_index=False)["population_2024"].max()
+        total_pop = pop_by_month.groupby("month", as_index=False)["population_2024"].sum()
+        incidents = d.groupby("month", as_index=False)["incident_count"].sum()
+        return incidents.merge(total_pop, on="month").sort_values("month")
     return (
         d.groupby("month", as_index=False)
         .agg(incident_count=("incident_count", "sum"), population_2024=("population_2024", "max"))
@@ -494,6 +499,7 @@ with comp_left:
         x="month",
         y="rate_per_100k",
         color="lga",
+        color_discrete_sequence=["#1f77b4", "#ff7f0e"],
         markers=True,
         title=f"Monthly rate per 100k: {lga_a} vs {lga_b}",
         labels={"month": "Month", "rate_per_100k": "Rate per 100k", "lga": "LGA"}
@@ -502,9 +508,9 @@ with comp_left:
     st.plotly_chart(fig_comp_trend, use_container_width=True)
 
 with comp_right:
-    offence_a = df[df["lga"] == lga_a].groupby("offence_category", as_index=False)["incident_count"].sum()
+    offence_a = (df if lga_a == "All" else df[df["lga"] == lga_a]).groupby("offence_category", as_index=False)["incident_count"].sum()
     offence_a["lga"] = lga_a
-    offence_b = df[df["lga"] == lga_b].groupby("offence_category", as_index=False)["incident_count"].sum()
+    offence_b = (df if lga_b == "All" else df[df["lga"] == lga_b]).groupby("offence_category", as_index=False)["incident_count"].sum()
     offence_b["lga"] = lga_b
     offence_comp = pd.concat([offence_a, offence_b], ignore_index=True)
 
@@ -513,6 +519,7 @@ with comp_right:
         x="incident_count",
         y="offence_category",
         color="lga",
+        color_discrete_sequence=["#1f77b4", "#ff7f0e"],
         barmode="group",
         orientation="h",
         title=f"Offence composition: {lga_a} vs {lga_b}",
@@ -607,6 +614,7 @@ fig_yoy = px.bar(
     x="month_name",
     y="incident_count",
     color="year",
+    color_discrete_sequence=["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"],
     barmode="group",
     title=f"Incidents by month — year-over-year comparison ({lga_label})",
     labels={"month_name": "Month", "incident_count": "Incidents", "year": "Year"},
