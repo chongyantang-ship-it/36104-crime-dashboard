@@ -30,6 +30,17 @@ The intended stakeholders are local council community safety planners and relate
 
 The population-adjusted rate allows fairer comparison between LGAs with different population sizes.
 
+### Socioeconomic enrichment dataset
+
+- 2021 ABS Census General Community Profile data at LGA level.
+- Selected indicators joined to the crime dataset through LGA code/name:
+  - median household income per week
+  - median rent per week
+  - median mortgage repayment per month
+  - average household size
+
+This enrichment helps the dashboard move beyond identifying where crime pressure is concentrated and supports the “So What” part of the narrative by showing whether high-crime LGAs also have different income or housing-cost conditions.
+
 ## Current Features
 
 - NSW LGA hotspot map showing population-adjusted crime pressure by rate per 100,000 people
@@ -48,6 +59,7 @@ The population-adjusted rate allows fairer comparison between LGAs with differen
   - rate per 100,000 people
 - Offence composition chart
 - Selected area insight panel
+- Socioeconomic context section comparing crime rate with selected 2021 Census indicators
 - Data preview table
 
 ## Advanced Feature Progress
@@ -66,7 +78,10 @@ This prototype currently supports:
 4. **Spatial hotspot map**  
    The dashboard uses NSW LGA boundary data to show where crime pressure is concentrated geographically.
 
-Planned improvements include richer tooltips, map-based hotspot view, and stronger recommendation logic.
+5. **Socioeconomic context / enriched dataset**
+   The dashboard joins crime data with ABS Census indicators to support deeper “So What” analysis beyond a single crime CSV.
+
+Planned improvements include richer tooltips, clearer recommendation logic, and stronger explanation of socioeconomic patterns.
 
 ## How to Run Locally
 
