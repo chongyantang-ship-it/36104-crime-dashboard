@@ -20,7 +20,7 @@ st.set_page_config(
 # =========================
 @st.cache_data
 def load_data():
-    df = pd.read_csv("crime_with_population_2024_onwards.csv")
+    df = pd.read_csv("crime_with_population_socioeconomic_2024_onwards.csv")
     df["month"] = pd.to_datetime(df["month"])
     return df
 
@@ -529,9 +529,74 @@ with comp_right:
     st.plotly_chart(fig_comp_bar, use_container_width=True)
 
 # =========================
+# Socioeconomic context
+# =========================
+st.header("7. So What: Socioeconomic Context")
+
+st.markdown(
+    """
+    This section connects crime pressure with socioeconomic context from the 2021 Census.
+    It helps stakeholders move beyond **where crime is happening** and explore whether high-crime LGAs also show different income or housing-cost patterns.
+    """
+)
+
+socio_lga = (
+    filtered.dropna(subset=[
+        "median_household_income_weekly",
+        "median_rent_weekly",
+        "median_mortgage_repay_monthly",
+        "rate_per_100k",
+        "population_2024"
+    ])
+    .groupby("lga", as_index=False)
+    .agg(
+        incident_count=("incident_count", "sum"),
+        population_2024=("population_2024", "max"),
+        rate_per_100k=("rate_per_100k", "sum"),
+        median_household_income_weekly=("median_household_income_weekly", "max"),
+        median_rent_weekly=("median_rent_weekly", "max"),
+        median_mortgage_repay_monthly=("median_mortgage_repay_monthly", "max")
+    )
+)
+
+fig_socio = px.scatter(
+    socio_lga,
+    x="median_household_income_weekly",
+    y="rate_per_100k",
+    size="population_2024",
+    hover_name="lga",
+    hover_data={
+        "incident_count": ":,",
+        "population_2024": ":,",
+        "rate_per_100k": ":.1f",
+        "median_household_income_weekly": ":,.0f",
+        "median_rent_weekly": ":,.0f",
+        "median_mortgage_repay_monthly": ":,.0f"
+    },
+    labels={
+        "median_household_income_weekly": "Median household income per week",
+        "rate_per_100k": "Crime rate per 100k people",
+        "population_2024": "Population"
+    },
+    title="Crime rate compared with median household income by LGA"
+)
+
+fig_socio.update_layout(
+    xaxis_title="Median household income per week",
+    yaxis_title="Crime rate per 100k people",
+    hovermode="closest"
+)
+
+st.plotly_chart(fig_socio, use_container_width=True)
+
+st.info(
+    "Interpretation: This view does not prove causation, but it helps identify whether high crime pressure appears alongside different income and housing-cost conditions. These patterns can guide deeper stakeholder discussion and prevention planning."
+)
+
+# =========================
 # LGA ranking
 # =========================
-st.header("7. Ranking: LGAs by Crime Rate")
+st.header("8. Ranking: LGAs by Crime Rate")
 
 rank_col1, rank_col2 = st.columns([2, 1])
 with rank_col1:
@@ -575,7 +640,7 @@ st.plotly_chart(fig_rank, use_container_width=True)
 # =========================
 # Stacked area by category
 # =========================
-st.header("8. Crime Trend by Offence Category")
+st.header("9. Crime Trend by Offence Category")
 
 cat_trend = (
     filtered.groupby(["month", "offence_category"], as_index=False)["incident_count"]
@@ -598,7 +663,7 @@ st.plotly_chart(fig_area, use_container_width=True)
 # =========================
 # Year-over-year comparison
 # =========================
-st.header("9. Year-over-Year Comparison")
+st.header("10. Year-over-Year Comparison")
 
 yoy_df = filtered.copy()
 yoy_df["year"] = yoy_df["month"].dt.year.astype(str)
@@ -627,7 +692,7 @@ st.plotly_chart(fig_yoy, use_container_width=True)
 # =========================
 # Month-over-month % change
 # =========================
-st.header("10. Crime Acceleration — Month-over-Month Change (%)")
+st.header("11. Crime Acceleration — Month-over-Month Change (%)")
 
 mom = (
     filtered.groupby("month", as_index=False)["incident_count"]
@@ -654,7 +719,7 @@ st.plotly_chart(fig_mom, use_container_width=True)
 # =========================
 # LGA summary table
 # =========================
-st.header("11. LGA Summary Table")
+st.header("12. LGA Summary Table")
 
 tbl_df = df.copy()
 if selected_offence != "All":
