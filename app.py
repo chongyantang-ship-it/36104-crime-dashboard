@@ -6,6 +6,12 @@ import json
 
 COLOR_SCALE = "Blues"
 
+month_abbr = {
+    1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr",
+    5: "May", 6: "Jun", 7: "Jul", 8: "Aug",
+    9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"
+}
+
 # =========================
 # Page config
 # =========================
@@ -84,11 +90,19 @@ def make_sparkline(series):
 # =========================
 # Title and narrative framing
 # =========================
-st.title("NSW Crime Pressure Dashboard")
+st.title("From Crime Trends to Priority Action: Identifying Community Safety Pressure Across NSW LGAs")
+
+st.markdown("**Stakeholder:** Local councils and community safety planners")
+
+st.markdown(
+    "**Narrative question:** Where is crime pressure rising across NSW, which offence patterns are driving the change, "
+    "and which LGAs should be prioritised for targeted prevention and community support?"
+)
+
 st.markdown(
     """
-    **Stakeholder:** Local council community safety planners  
-    **Narrative question:** Where is crime pressure rising across NSW, what offence types are driving the change, and where should prevention resources be prioritised next?
+    This dashboard is structured as a decision-support narrative. It first identifies where crime pressure is concentrated,
+    then examines recent movement, offence composition, and priority areas for targeted local action.
     """
 )
 
@@ -185,7 +199,14 @@ else:
 # ==========================
 # Hotspot map
 # ==========================
-st.header("0. Where: NSW Crime Hotspot Map")
+st.header("1. Crime pressure is concentrated in a limited number of NSW LGAs")
+
+st.markdown(
+    """
+    Crime is not evenly distributed across NSW. Rates per 100,000 people highlight where pressure is relatively higher
+    after accounting for population size, helping stakeholders focus on areas that may need closer attention.
+    """
+)
 
 map_filtered = df.copy()
 
@@ -263,7 +284,7 @@ fig_map.update_traces(
         "Total incidents: %{customdata[0]:,}<br>"
         "Population: %{customdata[1]:,}<br>"
         "Top offence: %{customdata[3]}<br>"
-        "Trend (últimos 8 meses): %{customdata[4]}"
+        "Trend (last 8 months): %{customdata[4]}"
         "<extra></extra>"
     )
 )
@@ -279,7 +300,14 @@ st.plotly_chart(fig_map, use_container_width=True)
 # =========================
 # Executive story section
 # =========================
-st.header("1. What: Selected Area Crime Snapshot")
+st.subheader("1.1 Selected area crime snapshot")
+
+st.markdown(
+    """
+    This snapshot summarises the selected area before moving into detailed trends. It shows the scale of crime pressure,
+    the latest monthly level, recent change, population-adjusted rate, and the main offence driver.
+    """
+)
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
@@ -308,17 +336,53 @@ _sidebar_csv_placeholder.download_button(
     mime="text/csv"
 )
 
-st.markdown(
-    f"""
-    This section gives a quick overview of **{lga_label}**.
-    It helps the stakeholder identify whether the selected area has a clear crime pressure signal before exploring deeper patterns.
-    """
+
+# =========================
+# Selected area detail panel
+# =========================
+st.subheader("1.2 Selected area insight card")
+
+latest_data = filtered[filtered["month"] == latest_month]
+
+latest_by_offence = (
+    latest_data.groupby("offence_category", as_index=False)["incident_count"]
+    .sum()
+    .sort_values("incident_count", ascending=False)
 )
+
+st.subheader(f"Insight card for {lga_label}")
+
+if not latest_by_offence.empty:
+    latest_top = latest_by_offence.iloc[0]
+    st.info(
+        f"""
+        In the latest available month, **{latest_top['offence_category']}** was the largest offence category in **{lga_label}**,
+        with **{int(latest_top['incident_count']):,} incidents**.
+
+        This suggests that prevention planning should first examine the main offence driver rather than treating all crime types as one general problem.
+        """
+    )
+else:
+    st.warning("No data available for the selected filters.")
+
 
 # =========================
 # Trend line
 # =========================
-st.header("2. So What: Monthly Crime Trend")
+# =========================
+# Recent movement / trend section
+# =========================
+st.header("2. Recent trends show that some LGAs are diverging from the NSW pattern")
+
+st.markdown(
+    """
+    A single snapshot can hide whether pressure is stabilising or intensifying. Monthly movement,
+    year-over-year differences, and short-term acceleration help distinguish persistent high-pressure
+    areas from places where change is more recent.
+    """
+)
+
+st.subheader("2.1 Monthly crime trend")
 
 monthly_total = (
     filtered.groupby("month", as_index=False)
@@ -363,9 +427,124 @@ fig_trend.update_layout(
 st.plotly_chart(fig_trend, use_container_width=True)
 
 # =========================
+# Year-over-year comparison
+# =========================
+st.subheader("2.2 Year-over-year comparison")
+
+st.markdown(
+    """
+    Comparing the same months across years helps show whether recent crime pressure is higher or lower than the previous year,
+    rather than treating each month as an isolated point.
+    """
+)
+
+yoy_df = filtered.copy()
+yoy_df["year"] = yoy_df["month"].dt.year.astype(str)
+yoy_df["month_num"] = yoy_df["month"].dt.month
+
+yoy_monthly = (
+    yoy_df.groupby(["year", "month_num"], as_index=False)["incident_count"].sum()
+)
+yoy_monthly["month_name"] = yoy_monthly["month_num"].map(month_abbr)
+
+fig_yoy = px.bar(
+    yoy_monthly,
+    x="month_name",
+    y="incident_count",
+    color="year",
+    color_discrete_sequence=["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"],
+    barmode="group",
+    title=f"Incidents by month — year-over-year comparison ({lga_label})",
+    labels={"month_name": "Month", "incident_count": "Incidents", "year": "Year"},
+    category_orders={"month_name": list(month_abbr.values())}
+)
+fig_yoy.update_layout(hovermode="x unified", legend_title="Year")
+
+st.plotly_chart(fig_yoy, use_container_width=True)
+
+
+# =========================
+# Month-over-month % change
+# =========================
+st.subheader("2.3 Short-term acceleration")
+
+st.markdown(
+    """
+    Month-over-month change highlights short-term acceleration or easing. This helps identify whether recent movement
+    is a temporary fluctuation or a signal that may need closer monitoring.
+    """
+)
+
+mom = (
+    filtered.groupby("month", as_index=False)["incident_count"]
+    .sum()
+    .sort_values("month")
+)
+mom["pct_change"] = mom["incident_count"].pct_change() * 100
+mom_valid = mom.dropna(subset=["pct_change"]).copy()
+
+fig_mom = px.bar(
+    mom_valid,
+    x="month",
+    y="pct_change",
+    color="pct_change",
+    color_continuous_scale=COLOR_SCALE,
+    title=f"Month-over-month % change in incidents — {lga_label}",
+    labels={"month": "Month", "pct_change": "% change vs prior month"},
+)
+fig_mom.add_hline(y=0, line_dash="dash", line_color="gray", line_width=1)
+fig_mom.update_layout(hovermode="x unified", coloraxis_showscale=False)
+
+st.plotly_chart(fig_mom, use_container_width=True)
+
+
+# =========================
+# Seasonality heatmap
+# =========================
+st.subheader("2.4 Seasonality by month of year")
+
+seasonal = filtered.copy()
+seasonal["month_name"] = seasonal["month"].dt.month
+seasonal["year"] = seasonal["month"].dt.year
+
+heat_pivot = (
+    seasonal.groupby(["year", "month_name"], as_index=False)["incident_count"]
+    .sum()
+    .pivot(index="year", columns="month_name", values="incident_count")
+)
+
+
+heat_pivot.columns = [month_abbr[c] for c in heat_pivot.columns]
+
+fig_heat = px.imshow(
+    heat_pivot,
+    labels={"x": "Month", "y": "Year", "color": "Incidents"},
+    title=f"Crime seasonality in {lga_label} — total incidents by month and year",
+    color_continuous_scale=COLOR_SCALE,
+    text_auto=True,
+    aspect="auto"
+)
+fig_heat.update_layout(margin={"t": 50, "b": 0})
+
+st.plotly_chart(fig_heat, use_container_width=True)
+
+
+# =========================
 # Offence composition
 # =========================
-st.header("3. Why: Offence Composition")
+# =========================
+# Offence composition
+# =========================
+st.header("3. The underlying offence mix differs across places and over time")
+
+st.markdown(
+    """
+    Not all crime pressure is driven by the same offence categories. Understanding which offences dominate each area
+    provides a more useful basis for prevention planning than treating all incidents as one undifferentiated problem.
+    """
+)
+
+st.subheader("3.1 Overall offence composition")
 
 offence_summary = (
     filtered.groupby("offence_category", as_index=False)["incident_count"]
@@ -391,68 +570,49 @@ fig_bar.update_layout(
 st.plotly_chart(fig_bar, use_container_width=True)
 
 # =========================
-# Selected area detail panel
+# Stacked area by category
 # =========================
-st.header("4. What Next: Selected Area Detail Panel")
+st.subheader("3.2 Offence category trend over time")
 
-latest_data = filtered[filtered["month"] == latest_month]
+st.markdown(
+    """
+    Tracking offence categories over time shows whether the overall crime pattern is being driven by stable categories
+    or by changes in specific offence types.
+    """
+)
 
-latest_by_offence = (
-    latest_data.groupby("offence_category", as_index=False)["incident_count"]
+cat_trend = (
+    filtered.groupby(["month", "offence_category"], as_index=False)["incident_count"]
     .sum()
-    .sort_values("incident_count", ascending=False)
+    .sort_values("month")
 )
 
-st.subheader(f"Insight card for {lga_label}")
-
-if not latest_by_offence.empty:
-    latest_top = latest_by_offence.iloc[0]
-    st.info(
-        f"""
-        In the latest available month, **{latest_top['offence_category']}** was the largest offence category in **{lga_label}**,
-        with **{int(latest_top['incident_count']):,} incidents**.
-
-        This suggests that prevention planning should first examine the main offence driver rather than treating all crime types as one general problem.
-        """
-    )
-else:
-    st.warning("No data available for the selected filters.")
-
-# =========================
-# Seasonality heatmap
-# =========================
-st.header("5. Seasonality: Crime by Month of Year")
-
-seasonal = filtered.copy()
-seasonal["month_name"] = seasonal["month"].dt.month
-seasonal["year"] = seasonal["month"].dt.year
-
-heat_pivot = (
-    seasonal.groupby(["year", "month_name"], as_index=False)["incident_count"]
-    .sum()
-    .pivot(index="year", columns="month_name", values="incident_count")
+fig_area = px.area(
+    cat_trend,
+    x="month",
+    y="incident_count",
+    color="offence_category",
+    title=f"Monthly incidents by offence category — {lga_label}",
+    labels={"month": "Month", "incident_count": "Incidents", "offence_category": "Category"}
 )
+fig_area.update_layout(hovermode="x unified", legend_title="Category")
 
-month_abbr = {1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
-              7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"}
-heat_pivot.columns = [month_abbr[c] for c in heat_pivot.columns]
+st.plotly_chart(fig_area, use_container_width=True)
 
-fig_heat = px.imshow(
-    heat_pivot,
-    labels={"x": "Month", "y": "Year", "color": "Incidents"},
-    title=f"Crime seasonality in {lga_label} — total incidents by month and year",
-    color_continuous_scale=COLOR_SCALE,
-    text_auto=True,
-    aspect="auto"
-)
-fig_heat.update_layout(margin={"t": 50, "b": 0})
 
-st.plotly_chart(fig_heat, use_container_width=True)
+
 
 # =========================
 # LGA comparator
 # =========================
-st.header("6. Comparator: Side-by-Side LGA Comparison")
+st.subheader("3.3 Selected LGA vs comparator")
+
+st.markdown(
+    """
+    Comparing one selected LGA against another area or the NSW baseline helps show whether its offence profile and crime rate
+    are unusual, similar, or more severe than a relevant comparison point.
+    """
+)
 
 comp_lga_options = ["All"] + sorted(df["lga"].dropna().unique())
 default_lga_b = comp_lga_options.index("Sydney") if "Sydney" in comp_lga_options else 0
@@ -528,10 +688,21 @@ with comp_right:
     fig_comp_bar.update_layout(yaxis={"categoryorder": "total ascending"})
     st.plotly_chart(fig_comp_bar, use_container_width=True)
 
-# =========================
-# Socioeconomic context
-# =========================
-st.header("7. So What: Socioeconomic Context")
+# ==========================
+# Priority action / socioeconomic context
+# ==========================
+st.header("4. Priority areas for action become clearer when patterns are compared side by side")
+
+st.markdown(
+    """
+    The final step is to move from description to prioritisation. Comparing LGAs by crime rate, recent change,
+    offence structure, and socioeconomic context helps identify where targeted prevention, monitoring,
+    or community support may deliver the greatest value.
+    """
+)
+
+st.subheader("4.1 Socioeconomic context")
+
 
 st.markdown(
     """
@@ -596,7 +767,14 @@ st.info(
 # =========================
 # LGA ranking
 # =========================
-st.header("8. Ranking: LGAs by Crime Rate")
+st.subheader("4.2 LGA priority ranking by crime rate")
+
+st.markdown(
+    """
+    Ranking LGAs by population-adjusted crime rate helps identify places where pressure is proportionally high,
+    rather than only highlighting large-population areas with more raw incidents.
+    """
+)
 
 rank_col1, rank_col2 = st.columns([2, 1])
 with rank_col1:
@@ -637,89 +815,19 @@ fig_rank.update_layout(
 
 st.plotly_chart(fig_rank, use_container_width=True)
 
-# =========================
-# Stacked area by category
-# =========================
-st.header("9. Crime Trend by Offence Category")
 
-cat_trend = (
-    filtered.groupby(["month", "offence_category"], as_index=False)["incident_count"]
-    .sum()
-    .sort_values("month")
-)
 
-fig_area = px.area(
-    cat_trend,
-    x="month",
-    y="incident_count",
-    color="offence_category",
-    title=f"Monthly incidents by offence category — {lga_label}",
-    labels={"month": "Month", "incident_count": "Incidents", "offence_category": "Category"}
-)
-fig_area.update_layout(hovermode="x unified", legend_title="Category")
-
-st.plotly_chart(fig_area, use_container_width=True)
-
-# =========================
-# Year-over-year comparison
-# =========================
-st.header("10. Year-over-Year Comparison")
-
-yoy_df = filtered.copy()
-yoy_df["year"] = yoy_df["month"].dt.year.astype(str)
-yoy_df["month_num"] = yoy_df["month"].dt.month
-
-yoy_monthly = (
-    yoy_df.groupby(["year", "month_num"], as_index=False)["incident_count"].sum()
-)
-yoy_monthly["month_name"] = yoy_monthly["month_num"].map(month_abbr)
-
-fig_yoy = px.bar(
-    yoy_monthly,
-    x="month_name",
-    y="incident_count",
-    color="year",
-    color_discrete_sequence=["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"],
-    barmode="group",
-    title=f"Incidents by month — year-over-year comparison ({lga_label})",
-    labels={"month_name": "Month", "incident_count": "Incidents", "year": "Year"},
-    category_orders={"month_name": list(month_abbr.values())}
-)
-fig_yoy.update_layout(hovermode="x unified", legend_title="Year")
-
-st.plotly_chart(fig_yoy, use_container_width=True)
-
-# =========================
-# Month-over-month % change
-# =========================
-st.header("11. Crime Acceleration — Month-over-Month Change (%)")
-
-mom = (
-    filtered.groupby("month", as_index=False)["incident_count"]
-    .sum()
-    .sort_values("month")
-)
-mom["pct_change"] = mom["incident_count"].pct_change() * 100
-mom_valid = mom.dropna(subset=["pct_change"]).copy()
-
-fig_mom = px.bar(
-    mom_valid,
-    x="month",
-    y="pct_change",
-    color="pct_change",
-    color_continuous_scale=COLOR_SCALE,
-    title=f"Month-over-month % change in incidents — {lga_label}",
-    labels={"month": "Month", "pct_change": "% change vs prior month"},
-)
-fig_mom.add_hline(y=0, line_dash="dash", line_color="gray", line_width=1)
-fig_mom.update_layout(hovermode="x unified", coloraxis_showscale=False)
-
-st.plotly_chart(fig_mom, use_container_width=True)
-
-# =========================
+# ==========================
 # LGA summary table
-# =========================
-st.header("12. LGA Summary Table")
+# ==========================
+st.subheader("4.3 Priority summary table")
+
+st.markdown(
+    """
+    The summary table brings together total incidents, population, crime rate, year-over-year change, and recent trend shape.
+    This helps stakeholders compare LGAs quickly and decide which areas may need closer review.
+    """
+)
 
 tbl_df = df.copy()
 if selected_offence != "All":
