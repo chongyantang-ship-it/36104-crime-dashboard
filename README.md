@@ -56,6 +56,17 @@ The population-adjusted crime rate allows fairer comparison between LGAs with di
 
 This enrichment helps the dashboard move beyond identifying **where** crime pressure is concentrated. It supports the **“So What”** part of the narrative by showing whether high-crime LGAs also have different income or housing-cost conditions.
 
+### Socioeconomic enrichment dataset
+
+- 2021 ABS Census General Community Profile data at LGA level.
+- Selected indicators joined to the crime dataset through LGA code/name:
+  - median household income per week
+  - median rent per week
+  - median mortgage repayment per month
+  - average household size
+
+This enrichment helps the dashboard move beyond identifying where crime pressure is concentrated and supports the “So What” part of the narrative by showing whether high-crime LGAs also have different income or housing-cost conditions.
+
 ## Current Features
 
 - NSW LGA hotspot map showing population-adjusted crime pressure by rate per 100,000 people
