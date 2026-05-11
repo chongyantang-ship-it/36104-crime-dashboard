@@ -668,24 +668,69 @@ with comp_left:
     st.plotly_chart(fig_comp_trend, use_container_width=True)
 
 with comp_right:
-    offence_a = (df if lga_a == "All" else df[df["lga"] == lga_a]).groupby("offence_category", as_index=False)["incident_count"].sum()
-    offence_a["lga"] = lga_a
-    offence_b = (df if lga_b == "All" else df[df["lga"] == lga_b]).groupby("offence_category", as_index=False)["incident_count"].sum()
-    offence_b["lga"] = lga_b
+    def get_offence_rate_by_lga(lga_name):
+        d = df.copy() if lga_name == "All" else df[df["lga"] == lga_name].copy()
+
+        if comp_offence != "All":
+            d = d[d["offence_category"] == comp_offence]
+
+        if isinstance(date_range, tuple) and len(date_range) == 2:
+            s, e = date_range
+            d = d[
+                (d["month"].dt.date >= s) &
+                (d["month"].dt.date <= e)
+            ]
+
+        offence_incidents = (
+            d.groupby("offence_category", as_index=False)["incident_count"]
+            .sum()
+        )
+
+        if lga_name == "All":
+            pop_total = d.groupby("lga")["population_2024"].max().sum()
+        else:
+            pop_total = d["population_2024"].max()
+
+        offence_incidents["population_2024"] = pop_total
+        offence_incidents["rate_per_100k"] = (
+            offence_incidents["incident_count"] / offence_incidents["population_2024"] * 100000
+        )
+        offence_incidents["lga"] = lga_name
+
+        return offence_incidents
+
+    offence_a = get_offence_rate_by_lga(lga_a)
+    offence_b = get_offence_rate_by_lga(lga_b)
+
     offence_comp = pd.concat([offence_a, offence_b], ignore_index=True)
 
     fig_comp_bar = px.bar(
         offence_comp,
-        x="incident_count",
+        x="rate_per_100k",
         y="offence_category",
         color="lga",
         color_discrete_sequence=["#1f77b4", "#ff7f0e"],
         barmode="group",
         orientation="h",
-        title=f"Offence composition: {lga_a} vs {lga_b}",
-        labels={"incident_count": "Incidents", "offence_category": "Offence", "lga": "LGA"}
+        title=f"Offence composition rate per 100k: {lga_a} vs {lga_b}",
+        labels={
+            "rate_per_100k": "Rate per 100k",
+            "offence_category": "Offence",
+            "lga": "LGA"
+        },
+        hover_data={
+            "incident_count": ":,",
+            "population_2024": ":,",
+            "rate_per_100k": ":.1f"
+        }
     )
-    fig_comp_bar.update_layout(yaxis={"categoryorder": "total ascending"})
+
+    fig_comp_bar.update_layout(
+        yaxis={"categoryorder": "total ascending"},
+        xaxis_title="Rate per 100k people",
+        yaxis_title="Offence"
+    )
+
     st.plotly_chart(fig_comp_bar, use_container_width=True)
 
 # ==========================
@@ -703,65 +748,97 @@ st.markdown(
 
 st.subheader("4.1 Socioeconomic context")
 
-
 st.markdown(
     """
     This section connects crime pressure with socioeconomic context from the 2021 Census.
-    It helps stakeholders move beyond **where crime is happening** and explore whether high-crime LGAs also show different income or housing-cost patterns.
+    It helps stakeholders move beyond **where crime is happening** and explore whether high-crime LGAs also show different income, housing-cost, or household-size patterns.
     """
 )
 
+socio_indicator_options = {
+    "Median personal income per week": "median_personal_income_weekly",
+    "Median household income per week": "median_household_income_weekly",
+    "Median rent per week": "median_rent_weekly",
+    "Median mortgage repayment per month": "median_mortgage_repay_monthly",
+    "Average household size": "average_household_size",
+}
+
+selected_socio_label = st.selectbox(
+    "Select socioeconomic indicator",
+    list(socio_indicator_options.keys()),
+    key="socio_indicator"
+)
+
+selected_socio_col = socio_indicator_options[selected_socio_label]
+
 socio_lga = (
     filtered.dropna(subset=[
-        "median_household_income_weekly",
-        "median_rent_weekly",
-        "median_mortgage_repay_monthly",
-        "rate_per_100k",
+        selected_socio_col,
         "population_2024"
     ])
     .groupby("lga", as_index=False)
     .agg(
         incident_count=("incident_count", "sum"),
         population_2024=("population_2024", "max"),
-        rate_per_100k=("rate_per_100k", "sum"),
+        socio_value=(selected_socio_col, "max"),
+        median_personal_income_weekly=("median_personal_income_weekly", "max"),
         median_household_income_weekly=("median_household_income_weekly", "max"),
         median_rent_weekly=("median_rent_weekly", "max"),
-        median_mortgage_repay_monthly=("median_mortgage_repay_monthly", "max")
+        median_mortgage_repay_monthly=("median_mortgage_repay_monthly", "max"),
+        average_household_size=("average_household_size", "max"),
     )
 )
 
+socio_lga["rate_per_100k"] = (
+    socio_lga["incident_count"] / socio_lga["population_2024"] * 100000
+)
+
+socio_lga = socio_lga.dropna(subset=["rate_per_100k", "socio_value"])
+
 fig_socio = px.scatter(
     socio_lga,
-    x="median_household_income_weekly",
+    x="socio_value",
     y="rate_per_100k",
-    size="population_2024",
+    color="socio_value",
     hover_name="lga",
     hover_data={
         "incident_count": ":,",
         "population_2024": ":,",
         "rate_per_100k": ":.1f",
+        "socio_value": ":,.1f",
+        "median_personal_income_weekly": ":,.0f",
         "median_household_income_weekly": ":,.0f",
         "median_rent_weekly": ":,.0f",
-        "median_mortgage_repay_monthly": ":,.0f"
+        "median_mortgage_repay_monthly": ":,.0f",
+        "average_household_size": ":.2f",
     },
     labels={
-        "median_household_income_weekly": "Median household income per week",
+        "socio_value": selected_socio_label,
         "rate_per_100k": "Crime rate per 100k people",
-        "population_2024": "Population"
+        "population_2024": "Population",
+        "incident_count": "Total incidents",
+        "median_personal_income_weekly": "Median personal income per week",
+        "median_household_income_weekly": "Median household income per week",
+        "median_rent_weekly": "Median rent per week",
+        "median_mortgage_repay_monthly": "Median mortgage repayment per month",
+        "average_household_size": "Average household size",
     },
-    title="Crime rate compared with median household income by LGA"
+    title=f"Crime rate compared with {selected_socio_label.lower()} by LGA"
 )
 
+fig_socio.update_traces(marker=dict(size=9, opacity=0.8))
+
 fig_socio.update_layout(
-    xaxis_title="Median household income per week",
+    xaxis_title=selected_socio_label,
     yaxis_title="Crime rate per 100k people",
-    hovermode="closest"
+    hovermode="closest",
+    coloraxis_colorbar_title=selected_socio_label
 )
 
 st.plotly_chart(fig_socio, use_container_width=True)
 
 st.info(
-    "Interpretation: This view does not prove causation, but it helps identify whether high crime pressure appears alongside different income and housing-cost conditions. These patterns can guide deeper stakeholder discussion and prevention planning."
+    "Interpretation: This view does not prove causation, but it helps identify whether high crime pressure appears alongside different socioeconomic conditions. These patterns can guide deeper stakeholder discussion and prevention planning."
 )
 
 # =========================
@@ -815,12 +892,157 @@ fig_rank.update_layout(
 
 st.plotly_chart(fig_rank, use_container_width=True)
 
+# ==========================
+# Fastest increasing/decreasing LGAs
+# ==========================
+st.subheader("4.3 Fastest increasing and decreasing LGAs by crime rate")
 
+st.markdown(
+    """
+    This view ranks LGAs by how much their population-adjusted crime rate has changed over the selected period.
+    It helps identify places where crime pressure is increasing most quickly, as well as places where pressure is easing.
+    """
+)
+
+change_df = df.copy()
+
+if selected_offence != "All":
+    change_df = change_df[change_df["offence_category"] == selected_offence]
+
+if isinstance(date_range, tuple) and len(date_range) == 2:
+    s, e = date_range
+    change_df = change_df[
+        (change_df["month"].dt.date >= s) &
+        (change_df["month"].dt.date <= e)
+    ]
+
+monthly_lga_rate = (
+    change_df
+    .groupby(["lga", "month"], as_index=False)
+    .agg(
+        incident_count=("incident_count", "sum"),
+        population_2024=("population_2024", "max")
+    )
+)
+
+monthly_lga_rate["rate_per_100k"] = (
+    monthly_lga_rate["incident_count"] / monthly_lga_rate["population_2024"] * 100000
+)
+
+monthly_lga_rate = monthly_lga_rate.dropna(subset=["rate_per_100k"])
+monthly_lga_rate = monthly_lga_rate.sort_values(["lga", "month"])
+
+first_rate = (
+    monthly_lga_rate
+    .groupby("lga", as_index=False)
+    .first()[["lga", "month", "rate_per_100k"]]
+    .rename(columns={
+        "month": "start_month",
+        "rate_per_100k": "start_rate_per_100k"
+    })
+)
+
+last_rate = (
+    monthly_lga_rate
+    .groupby("lga", as_index=False)
+    .last()[["lga", "month", "rate_per_100k"]]
+    .rename(columns={
+        "month": "end_month",
+        "rate_per_100k": "end_rate_per_100k"
+    })
+)
+
+rate_change = first_rate.merge(last_rate, on="lga", how="inner")
+
+rate_change["rate_change"] = (
+    rate_change["end_rate_per_100k"] - rate_change["start_rate_per_100k"]
+)
+
+rate_change["rate_change_pct"] = (
+    rate_change["rate_change"] / rate_change["start_rate_per_100k"] * 100
+)
+
+rate_change = rate_change.replace([float("inf"), float("-inf")], pd.NA)
+rate_change = rate_change.dropna(subset=["rate_change", "rate_change_pct"])
+
+top_increase = (
+    rate_change
+    .sort_values("rate_change", ascending=False)
+    .head(10)
+)
+
+top_decrease = (
+    rate_change
+    .sort_values("rate_change", ascending=True)
+    .head(10)
+)
+
+inc_col, dec_col = st.columns(2)
+
+with inc_col:
+    fig_inc = px.bar(
+        top_increase,
+        x="rate_change",
+        y="lga",
+        orientation="h",
+        title="Top 10 LGAs with increasing crime rate",
+        labels={
+            "rate_change": "Change in crime rate per 100k",
+            "lga": "LGA"
+        },
+        hover_data={
+            "start_rate_per_100k": ":,.1f",
+            "end_rate_per_100k": ":,.1f",
+            "rate_change": ":,.1f",
+            "rate_change_pct": ":.1f"
+        }
+    )
+
+    fig_inc.update_layout(
+        yaxis={"categoryorder": "total ascending"},
+        xaxis_title="Increase in rate per 100k",
+        yaxis_title="LGA",
+        height=420
+    )
+
+    st.plotly_chart(fig_inc, use_container_width=True)
+
+with dec_col:
+    fig_dec = px.bar(
+        top_decrease,
+        x="rate_change",
+        y="lga",
+        orientation="h",
+        title="Top 10 LGAs with decreasing crime rate",
+        labels={
+            "rate_change": "Change in crime rate per 100k",
+            "lga": "LGA"
+        },
+        hover_data={
+            "start_rate_per_100k": ":,.1f",
+            "end_rate_per_100k": ":,.1f",
+            "rate_change": ":,.1f",
+            "rate_change_pct": ":.1f"
+        }
+    )
+
+    fig_dec.update_layout(
+        yaxis={"categoryorder": "total descending"},
+        xaxis_title="Decrease in rate per 100k",
+        yaxis_title="LGA",
+        height=420
+    )
+
+    st.plotly_chart(fig_dec, use_container_width=True)
+
+st.info(
+    "Interpretation: LGAs with the largest increases may need closer monitoring or earlier prevention action, while LGAs with decreasing rates may provide useful comparison cases for understanding what is improving."
+)
 
 # ==========================
 # LGA summary table
 # ==========================
-st.subheader("4.3 Priority summary table")
+st.subheader("4.4 Priority summary table")
 
 st.markdown(
     """
