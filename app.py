@@ -2,9 +2,34 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
+import plotly.io as pio
 import json
 
-COLOR_SCALE = "Blues"
+_BG = "#07073f"
+_PANEL = "#0d0d60"
+_GRID = "#1a1a80"
+_TEXT = "#ffffff"
+_GREEN = "#caf8ba"
+_ORANGE = "#f9c06a"
+
+COLOR_SCALE = [[0.0, _ORANGE], [1.0, _GREEN]]
+DISCRETE_COLORS = [_GREEN, _ORANGE, "#98e890", "#f0b050", "#70d880"]
+
+_tmpl = go.layout.Template(
+    layout=go.Layout(
+        paper_bgcolor=_BG,
+        plot_bgcolor=_PANEL,
+        font=dict(color=_TEXT),
+        xaxis=dict(gridcolor=_GRID, linecolor=_GRID, zerolinecolor=_GRID),
+        yaxis=dict(gridcolor=_GRID, linecolor=_GRID, zerolinecolor=_GRID),
+        colorway=DISCRETE_COLORS,
+        legend=dict(bgcolor=_PANEL, bordercolor=_GRID),
+        coloraxis=dict(colorbar=dict(bgcolor=_PANEL, tickfont=dict(color=_TEXT))),
+    )
+)
+pio.templates["dash_theme"] = _tmpl
+pio.templates.default = "plotly+dash_theme"
 
 month_abbr = {
     1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr",
@@ -19,6 +44,28 @@ st.set_page_config(
     page_title="NSW Crime Pressure Dashboard",
     page_icon="📊",
     layout="wide"
+)
+
+st.markdown(
+    """
+    <style>
+    .stApp { background-color: #07073f; }
+    [data-testid="stSidebar"] { background-color: #0d0d60; }
+    [data-testid="stSidebar"] * { color: #ffffff; }
+    [data-testid="metric-container"] {
+        background-color: #0d0d60;
+        border: 1px solid #caf8ba;
+        border-radius: 8px;
+        padding: 8px 16px;
+    }
+    [data-testid="stMetricValue"] { color: #caf8ba; }
+    [data-testid="stMetricLabel"] { color: #f9c06a; }
+    .stAlert { background-color: #0d0d60; border-color: #caf8ba; color: #ffffff; }
+    .stDataFrame { background-color: #0d0d60; }
+    div[data-testid="stExpander"] { background-color: #0d0d60; border-color: #1a1a80; }
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
 # =========================
@@ -452,7 +499,7 @@ fig_yoy = px.bar(
     x="month_name",
     y="incident_count",
     color="year",
-    color_discrete_sequence=["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"],
+    color_discrete_sequence=DISCRETE_COLORS,
     barmode="group",
     title=f"Incidents by month — year-over-year comparison ({lga_label})",
     labels={"month_name": "Month", "incident_count": "Incidents", "year": "Year"},
@@ -492,7 +539,7 @@ fig_mom = px.bar(
     title=f"Month-over-month % change in incidents — {lga_label}",
     labels={"month": "Month", "pct_change": "% change vs prior month"},
 )
-fig_mom.add_hline(y=0, line_dash="dash", line_color="gray", line_width=1)
+fig_mom.add_hline(y=0, line_dash="dash", line_color=_GREEN, line_width=1)
 fig_mom.update_layout(hovermode="x unified", coloraxis_showscale=False)
 
 st.plotly_chart(fig_mom, use_container_width=True)
@@ -550,6 +597,7 @@ offence_summary = (
     filtered.groupby("offence_category", as_index=False)["incident_count"]
     .sum()
     .sort_values("incident_count", ascending=False)
+    .head(10)
 )
 
 fig_bar = px.bar(
@@ -659,7 +707,7 @@ with comp_left:
         x="month",
         y="rate_per_100k",
         color="lga",
-        color_discrete_sequence=["#1f77b4", "#ff7f0e"],
+        color_discrete_sequence=[_GREEN, _ORANGE],
         markers=True,
         title=f"Monthly rate per 100k: {lga_a} vs {lga_b}",
         labels={"month": "Month", "rate_per_100k": "Rate per 100k", "lga": "LGA"}
@@ -704,12 +752,21 @@ with comp_right:
 
     offence_comp = pd.concat([offence_a, offence_b], ignore_index=True)
 
+    top10_offences = (
+        offence_comp.groupby("offence_category")["rate_per_100k"]
+        .sum()
+        .sort_values(ascending=False)
+        .head(10)
+        .index
+    )
+    offence_comp = offence_comp[offence_comp["offence_category"].isin(top10_offences)]
+
     fig_comp_bar = px.bar(
         offence_comp,
         x="rate_per_100k",
         y="offence_category",
         color="lga",
-        color_discrete_sequence=["#1f77b4", "#ff7f0e"],
+        color_discrete_sequence=[_GREEN, _ORANGE],
         barmode="group",
         orientation="h",
         title=f"Offence composition rate per 100k: {lga_a} vs {lga_b}",
@@ -857,7 +914,7 @@ rank_col1, rank_col2 = st.columns([2, 1])
 with rank_col1:
     rank_offence = st.selectbox("Filter by offence category", offence_options, key="rank_offence")
 with rank_col2:
-    top_n = st.slider("Show top N LGAs", min_value=5, max_value=50, value=20, step=5)
+    top_n = st.slider("Show top N LGAs", min_value=5, max_value=50, value=10, step=5)
 
 rank_df = df.copy()
 if rank_offence != "All":
