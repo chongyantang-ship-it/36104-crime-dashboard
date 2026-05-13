@@ -6,15 +6,15 @@ import plotly.graph_objects as go
 import plotly.io as pio
 import json
 
-_BG = "#07073f"
-_PANEL = "#0d0d60"
-_GRID = "#1a1a80"
+_BG = "#021020"
+_PANEL = "#071e3d"
+_GRID = "#0f3060"
 _TEXT = "#ffffff"
-_GREEN = "#caf8ba"
-_ORANGE = "#f9c06a"
+_BLUE = "#4a90d9"
+_ORANGE = "#f07230"
 
-COLOR_SCALE = [[0.0, _ORANGE], [1.0, _GREEN]]
-DISCRETE_COLORS = [_GREEN, _ORANGE, "#98e890", "#f0b050", "#70d880"]
+COLOR_SCALE = "Blues"
+DISCRETE_COLORS = [_BLUE, _ORANGE, "#6db3e8", "#f0b050", "#3a7abf"]
 
 _tmpl = go.layout.Template(
     layout=go.Layout(
@@ -25,7 +25,6 @@ _tmpl = go.layout.Template(
         yaxis=dict(gridcolor=_GRID, linecolor=_GRID, zerolinecolor=_GRID),
         colorway=DISCRETE_COLORS,
         legend=dict(bgcolor=_PANEL, bordercolor=_GRID),
-        coloraxis=dict(colorbar=dict(bgcolor=_PANEL, tickfont=dict(color=_TEXT))),
     )
 )
 pio.templates["dash_theme"] = _tmpl
@@ -49,20 +48,20 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    .stApp { background-color: #07073f; }
-    [data-testid="stSidebar"] { background-color: #0d0d60; }
+    .stApp { background-color: #021020; }
+    [data-testid="stSidebar"] { background-color: #071e3d; }
     [data-testid="stSidebar"] * { color: #ffffff; }
     [data-testid="metric-container"] {
-        background-color: #0d0d60;
-        border: 1px solid #caf8ba;
+        background-color: #071e3d;
+        border: 1px solid #4a90d9;
         border-radius: 8px;
         padding: 8px 16px;
     }
-    [data-testid="stMetricValue"] { color: #caf8ba; }
-    [data-testid="stMetricLabel"] { color: #f9c06a; }
-    .stAlert { background-color: #0d0d60; border-color: #caf8ba; color: #ffffff; }
-    .stDataFrame { background-color: #0d0d60; }
-    div[data-testid="stExpander"] { background-color: #0d0d60; border-color: #1a1a80; }
+    [data-testid="stMetricValue"] { color: #4a90d9; }
+    [data-testid="stMetricLabel"] { color: #f07230; }
+    .stAlert { background-color: #071e3d; border-color: #4a90d9; color: #ffffff; }
+    .stDataFrame { background-color: #071e3d; }
+    div[data-testid="stExpander"] { background-color: #071e3d; border-color: #0f3060; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -539,7 +538,7 @@ fig_mom = px.bar(
     title=f"Month-over-month % change in incidents — {lga_label}",
     labels={"month": "Month", "pct_change": "% change vs prior month"},
 )
-fig_mom.add_hline(y=0, line_dash="dash", line_color=_GREEN, line_width=1)
+fig_mom.add_hline(y=0, line_dash="dash", line_color=_ORANGE, line_width=1)
 fig_mom.update_layout(hovermode="x unified", coloraxis_showscale=False)
 
 st.plotly_chart(fig_mom, use_container_width=True)
@@ -707,7 +706,7 @@ with comp_left:
         x="month",
         y="rate_per_100k",
         color="lga",
-        color_discrete_sequence=[_GREEN, _ORANGE],
+        color_discrete_sequence=[_BLUE, _ORANGE],
         markers=True,
         title=f"Monthly rate per 100k: {lga_a} vs {lga_b}",
         labels={"month": "Month", "rate_per_100k": "Rate per 100k", "lga": "LGA"}
@@ -766,7 +765,7 @@ with comp_right:
         x="rate_per_100k",
         y="offence_category",
         color="lga",
-        color_discrete_sequence=[_GREEN, _ORANGE],
+        color_discrete_sequence=[_BLUE, _ORANGE],
         barmode="group",
         orientation="h",
         title=f"Offence composition rate per 100k: {lga_a} vs {lga_b}",
